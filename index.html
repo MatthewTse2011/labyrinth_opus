@@ -68,7 +68,7 @@ canvas {
 
 <!-- Overlays -->
 <div class="overlay" id="overlayStart">
-  <h1>⚙️ Labyrinth1</h1>
+  <h1>⚙️ Labyrinth</h1>
   <p>Tilt your phone to roll the steel ball<br>through the maze to the 🏁 goal.</p>
   <p>Avoid the holes! You have 3 lives.</p>
   <p class="sub">Hold your phone however feels comfortable —<br>that angle becomes your neutral position.</p>
@@ -160,10 +160,10 @@ const LEVELS = [
 // TUNING CONSTANTS — edit these to adjust feel
 // ============================================================
 const FRICTION = 0.965;
-const ACCEL = 0.5;
+const ACCEL = 0.7;
 const SENSITIVITY_X = 1.0;   // horizontal sensitivity
 const SENSITIVITY_Y = 1.4;   // vertical sensitivity (higher to compensate for gyro bias)
-const MAX_SPEED = 5;          // top speed of the ball (try 3–4 for slow, 6–8 for fast)
+const MAX_SPEED = 7;          // top speed of the ball (try 3–4 for slow, 6–8 for fast)
 const BOUNCE_FACTOR = 0.25;
 const HOLE_PULL_RADIUS = 0.85;
 const HOLE_PULL_STRENGTH = 0.1;
