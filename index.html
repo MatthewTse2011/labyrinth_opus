@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Labyrinth</title>
+<title>Labyrinth1</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body {
@@ -109,7 +109,6 @@ const ctx = canvas.getContext('2d');
 const OPEN = 0, WALL = 1, HOLE = 2, START = 3, END = 4;
 
 // --- Level definitions ---
-// 0=open, 1=wall, 2=hole, 3=start, 4=end
 const LEVELS = [
   // Level 1 — Snake path, 2 holes (8 × 11)
   [[1,1,1,1,1,1,1,1],
@@ -157,7 +156,22 @@ const LEVELS = [
    [1,1,1,1,1,1,1,1,1,1]]
 ];
 
-// --- Game state ---
+// ============================================================
+// TUNING CONSTANTS — edit these to adjust feel
+// ============================================================
+const FRICTION = 0.965;
+const ACCEL = 0.5;
+const SENSITIVITY_X = 1.0;   // horizontal sensitivity
+const SENSITIVITY_Y = 1.4;   // vertical sensitivity (higher to compensate for gyro bias)
+const MAX_SPEED = 5;          // top speed of the ball (try 3–4 for slow, 6–8 for fast)
+const BOUNCE_FACTOR = 0.25;
+const HOLE_PULL_RADIUS = 0.85;
+const HOLE_PULL_STRENGTH = 0.1;
+const HOLE_FALL_RADIUS = 0.26;
+
+// ============================================================
+// GAME STATE
+// ============================================================
 let currentLevel = 0;
 let lives = 3;
 let gameState = 'start';
@@ -179,15 +193,6 @@ let orientationListening = false;
 
 let fallAnim = null;
 let bgCanvas = null, bgCtx = null;
-
-// --- Physics constants ---
-const FRICTION = 0.965;
-const ACCEL = 0.5;
-const MAX_SPEED = 5;
-const BOUNCE_FACTOR = 0.25;
-const HOLE_PULL_RADIUS = 0.85;   // × cellSize
-const HOLE_PULL_STRENGTH = 0.1;
-const HOLE_FALL_RADIUS = 0.26;   // × cellSize
 
 // ============================================================
 // SETUP & INITIALIZATION
@@ -283,13 +288,11 @@ function renderBackground() {
   // --- Holes ---
   holes.forEach(function(h) {
     var hr = cellSize * 0.34;
-    // Outer shadow
     var g1 = bgCtx.createRadialGradient(h.x, h.y, hr * 0.7, h.x, h.y, hr * 1.3);
     g1.addColorStop(0, 'rgba(0,0,0,0.3)');
     g1.addColorStop(1, 'rgba(0,0,0,0)');
     bgCtx.beginPath(); bgCtx.arc(h.x, h.y, hr * 1.3, 0, Math.PI * 2);
     bgCtx.fillStyle = g1; bgCtx.fill();
-    // Depth
     var g2 = bgCtx.createRadialGradient(h.x, h.y, 0, h.x, h.y, hr);
     g2.addColorStop(0, '#050202'); g2.addColorStop(0.6, '#0a0504');
     g2.addColorStop(0.85, '#1a0e08'); g2.addColorStop(1, '#3a2010');
@@ -324,10 +327,8 @@ function renderBackground() {
 // ============================================================
 function drawBall(x, y, r) {
   if (r <= 0) return;
-  // Shadow
   ctx.beginPath(); ctx.arc(x + 2, y + 3, r * 0.95, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fill();
-  // Metallic body
   var g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.05,
     x + r * 0.1, y + r * 0.1, r);
   g.addColorStop(0, '#eeeeF4'); g.addColorStop(0.2, '#ccccDC');
@@ -335,7 +336,6 @@ function drawBall(x, y, r) {
   g.addColorStop(1, '#2a2a38');
   ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fillStyle = g; ctx.fill();
-  // Highlight
   ctx.beginPath(); ctx.arc(x - r * 0.22, y - r * 0.25, r * 0.17, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.fill();
 }
@@ -344,9 +344,9 @@ function drawBall(x, y, r) {
 // PHYSICS
 // ============================================================
 function updatePhysics() {
-  // Tilt acceleration
-  ball.vx += tiltX * ACCEL;
-  ball.vy += tiltY * ACCEL;
+  // Tilt acceleration with per-axis sensitivity
+  ball.vx += tiltX * ACCEL * SENSITIVITY_X;
+  ball.vy += tiltY * ACCEL * SENSITIVITY_Y;
 
   // Hole gravitational pull
   for (var i = 0; i < holes.length; i++) {
@@ -406,7 +406,6 @@ function resolveWalls(axis) {
     for (var col = c0; col <= c1; col++) {
       if (maze[row][col] !== WALL) continue;
       var wx = col * cellSize, wy = row * cellSize;
-      // Closest point on rectangle to ball center
       var cx = Math.max(wx, Math.min(ball.x, wx + cellSize));
       var cy = Math.max(wy, Math.min(ball.y, wy + cellSize));
       var dx = ball.x - cx, dy = ball.y - cy;
@@ -536,8 +535,8 @@ function startListening() {
 }
 
 function onDeviceOrientation(e) {
-  var beta = e.beta || 0;   // front-back tilt
-  var gamma = e.gamma || 0; // left-right tilt
+  var beta = e.beta || 0;
+  var gamma = e.gamma || 0;
 
   if (!calibrated) {
     betaOffset = beta;
@@ -563,7 +562,6 @@ function gameLoop(timestamp) {
     updateHUD();
   }
 
-  // --- Render ---
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (bgCanvas) ctx.drawImage(bgCanvas, 0, 0);
 
@@ -578,7 +576,6 @@ function gameLoop(timestamp) {
     ctx.fillStyle = glowG; ctx.fill();
   }
 
-  // Draw ball or fall animation
   if (gameState === 'falling') {
     tickFallAnimation(timestamp);
   } else if (gameState === 'playing' || gameState === 'start' ||
@@ -597,7 +594,7 @@ function startPlaying() {
   gameState = 'playing';
   timerStart = performance.now();
   timerRunning = true;
-  calibrated = false; // recalibrate on next orientation event
+  calibrated = false;
 }
 
 // ============================================================
