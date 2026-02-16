@@ -1,0 +1,643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Labyrinth</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  overscroll-behavior: none; touch-action: none;
+  user-select: none; -webkit-user-select: none;
+  background: #1a0e08;
+  font-family: Georgia, 'Times New Roman', serif;
+}
+body {
+  display: flex; flex-direction: column;
+  align-items: center; padding-top: 8px;
+}
+#hud {
+  display: flex; justify-content: space-between;
+  align-items: center; width: 100%; max-width: 420px;
+  padding: 6px 16px 10px; color: #dcc49c;
+}
+.hud-item { text-align: center; flex: 1; }
+.hud-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.6; }
+.hud-value { font-size: 20px; font-weight: bold; margin-top: 2px; }
+canvas {
+  display: block; border-radius: 4px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(10,5,2,0.84);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 100; color: #dcc49c; text-align: center; padding: 30px;
+}
+.overlay.hidden { display: none; }
+.overlay h1 { font-size: 36px; margin-bottom: 6px; text-shadow: 0 2px 10px rgba(0,0,0,0.6); }
+.overlay h2 { font-size: 28px; margin-bottom: 10px; }
+.overlay p { font-size: 16px; margin: 6px 0; line-height: 1.6; opacity: 0.9; }
+.overlay .sub { font-size: 13px; opacity: 0.55; margin-top: 4px; }
+.time-display {
+  font-size: 48px; color: #f0c040; margin: 12px 0;
+  font-weight: bold; text-shadow: 0 0 24px rgba(240,192,64,0.3);
+}
+.btn {
+  padding: 16px 48px; font-size: 18px;
+  background: linear-gradient(180deg, #a0622a, #7a4420);
+  color: #f5e6d0; border: 2px solid #c8a060;
+  border-radius: 14px; cursor: pointer;
+  font-family: Georgia, serif; margin-top: 18px;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+.btn:active { background: linear-gradient(180deg,#7a4420,#5a3010); transform: scale(0.97); }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="hud-item"><div class="hud-label">Lives</div><div class="hud-value" id="hudLives">❤️❤️❤️</div></div>
+  <div class="hud-item"><div class="hud-label">Time</div><div class="hud-value" id="hudTime">0.0s</div></div>
+  <div class="hud-item"><div class="hud-label">Level</div><div class="hud-value" id="hudLevel">1</div></div>
+</div>
+<canvas id="gameCanvas"></canvas>
+
+<!-- Overlays -->
+<div class="overlay" id="overlayStart">
+  <h1>⚙️ Labyrinth</h1>
+  <p>Tilt your phone to roll the steel ball<br>through the maze to the 🏁 goal.</p>
+  <p>Avoid the holes! You have 3 lives.</p>
+  <p class="sub">Hold your phone however feels comfortable —<br>that angle becomes your neutral position.</p>
+  <button class="btn" id="btnStart">Tap to Start</button>
+</div>
+<div class="overlay hidden" id="overlayFell">
+  <h2>😵 Fell in a hole!</h2>
+  <p id="fellMsg">Lives remaining: ❤️❤️</p>
+  <button class="btn" id="btnRetry">Try Again</button>
+</div>
+<div class="overlay hidden" id="overlayWin">
+  <h2>🎉 Level Complete!</h2>
+  <div class="time-display" id="winTime">0.0s</div>
+  <p id="winMsg"></p>
+  <button class="btn" id="btnNext">Next Level</button>
+</div>
+<div class="overlay hidden" id="overlayGameOver">
+  <h2>💀 Game Over</h2>
+  <p>All lives lost!</p>
+  <button class="btn" id="btnRestart">Start Over</button>
+</div>
+<div class="overlay hidden" id="overlayAllDone">
+  <h2>🏆 You Win!</h2>
+  <p>All 3 levels completed!</p>
+  <div class="time-display" id="totalTimeVal">0.0s</div>
+  <p class="sub">Total time across all levels</p>
+  <button class="btn" id="btnPlayAgain">Play Again</button>
+</div>
+
+<script>
+// ============================================================
+// LABYRINTH GAME
+// ============================================================
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// --- Cell type constants ---
+const OPEN = 0, WALL = 1, HOLE = 2, START = 3, END = 4;
+
+// --- Level definitions ---
+// 0=open, 1=wall, 2=hole, 3=start, 4=end
+const LEVELS = [
+  // Level 1 — Snake path, 2 holes (8 × 11)
+  [[1,1,1,1,1,1,1,1],
+   [1,3,0,0,0,0,0,1],
+   [1,1,1,1,1,1,0,1],
+   [1,0,0,0,0,0,0,1],
+   [1,0,1,1,1,1,1,1],
+   [1,0,0,2,0,0,0,1],
+   [1,1,0,1,1,1,0,1],
+   [1,0,0,0,0,2,0,1],
+   [1,0,1,1,1,1,0,1],
+   [1,0,0,0,0,0,4,1],
+   [1,1,1,1,1,1,1,1]],
+
+  // Level 2 — Branching maze, 2 holes (10 × 13)
+  [[1,1,1,1,1,1,1,1,1,1],
+   [1,3,0,0,1,0,0,0,0,1],
+   [1,1,1,0,1,0,1,1,0,1],
+   [1,0,0,0,0,0,1,0,0,1],
+   [1,0,1,1,1,0,1,0,1,1],
+   [1,0,0,2,0,0,0,0,0,1],
+   [1,0,1,1,1,1,1,1,0,1],
+   [1,0,0,0,0,0,2,0,0,1],
+   [1,1,1,0,1,1,1,1,0,1],
+   [1,0,0,0,1,0,0,0,0,1],
+   [1,0,1,0,1,0,1,1,1,1],
+   [1,0,1,0,0,0,0,0,4,1],
+   [1,1,1,1,1,1,1,1,1,1]],
+
+  // Level 3 — Complex maze, 5 holes (10 × 15)
+  [[1,1,1,1,1,1,1,1,1,1],
+   [1,3,0,0,1,0,0,0,0,1],
+   [1,0,1,0,0,0,1,1,0,1],
+   [1,0,1,1,1,0,0,0,0,1],
+   [1,0,0,0,1,0,1,0,1,1],
+   [1,1,1,0,1,2,1,0,0,1],
+   [1,0,0,0,0,0,1,1,0,1],
+   [1,0,1,1,1,0,0,2,0,1],
+   [1,0,1,0,0,0,1,1,0,1],
+   [1,0,0,0,1,2,0,0,0,1],
+   [1,0,1,0,1,1,1,0,1,1],
+   [1,0,1,0,2,0,0,0,0,1],
+   [1,0,1,1,1,0,1,1,0,1],
+   [1,0,0,2,0,0,0,0,4,1],
+   [1,1,1,1,1,1,1,1,1,1]]
+];
+
+// --- Game state ---
+let currentLevel = 0;
+let lives = 3;
+let gameState = 'start';
+let timerStart = 0;
+let timerRunning = false;
+let totalTime = 0;
+
+let cellSize = 0;
+let maze = null;
+let ball = { x: 0, y: 0, vx: 0, vy: 0, radius: 0 };
+let holes = [];
+let startPos = { x: 0, y: 0 };
+let endPos = { x: 0, y: 0 };
+
+let tiltX = 0, tiltY = 0;
+let calibrated = false;
+let betaOffset = 0, gammaOffset = 0;
+let orientationListening = false;
+
+let fallAnim = null;
+let bgCanvas = null, bgCtx = null;
+
+// --- Physics constants ---
+const FRICTION = 0.965;
+const ACCEL = 0.5;
+const MAX_SPEED = 5;
+const BOUNCE_FACTOR = 0.25;
+const HOLE_PULL_RADIUS = 0.85;   // × cellSize
+const HOLE_PULL_STRENGTH = 0.1;
+const HOLE_FALL_RADIUS = 0.26;   // × cellSize
+
+// ============================================================
+// SETUP & INITIALIZATION
+// ============================================================
+function setupCanvas() {
+  maze = LEVELS[currentLevel];
+  const rows = maze.length;
+  const cols = maze[0].length;
+  const maxW = Math.min(window.innerWidth - 8, 420);
+  const maxH = window.innerHeight - 80;
+  cellSize = Math.floor(Math.min(maxW / cols, maxH / rows));
+  canvas.width = cellSize * cols;
+  canvas.height = cellSize * rows;
+  canvas.style.width = canvas.width + 'px';
+  canvas.style.height = canvas.height + 'px';
+  ball.radius = Math.floor(cellSize * 0.32);
+}
+
+function initLevel() {
+  setupCanvas();
+  holes = [];
+  for (let r = 0; r < maze.length; r++) {
+    for (let c = 0; c < maze[0].length; c++) {
+      const px = c * cellSize + cellSize / 2;
+      const py = r * cellSize + cellSize / 2;
+      const val = maze[r][c];
+      if (val === START) startPos = { x: px, y: py };
+      else if (val === END) endPos = { x: px, y: py };
+      else if (val === HOLE) holes.push({ x: px, y: py });
+    }
+  }
+  resetBall();
+  renderBackground();
+  updateHUD();
+}
+
+function resetBall() {
+  ball.x = startPos.x;
+  ball.y = startPos.y;
+  ball.vx = 0;
+  ball.vy = 0;
+  fallAnim = null;
+}
+
+// ============================================================
+// BACKGROUND RENDERING (drawn once per level)
+// ============================================================
+function renderBackground() {
+  bgCanvas = document.createElement('canvas');
+  bgCanvas.width = canvas.width;
+  bgCanvas.height = canvas.height;
+  bgCtx = bgCanvas.getContext('2d');
+
+  // --- Wood floor ---
+  bgCtx.fillStyle = '#c49a6c';
+  bgCtx.fillRect(0, 0, bgCanvas.width, bgCanvas.height);
+  for (let y = 0; y < bgCanvas.height; y++) {
+    const n = Math.sin(y * 0.15) * 0.03 + Math.sin(y * 0.4 + 1.5) * 0.015
+            + Math.sin(y * 0.02 + 0.7) * 0.04;
+    bgCtx.fillStyle = n > 0
+      ? 'rgba(80,50,15,' + Math.abs(n) + ')'
+      : 'rgba(220,196,156,' + Math.abs(n) + ')';
+    bgCtx.fillRect(0, y, bgCanvas.width, 1);
+  }
+
+  // --- Wall blocks ---
+  for (let r = 0; r < maze.length; r++) {
+    for (let c = 0; c < maze[0].length; c++) {
+      if (maze[r][c] !== WALL) continue;
+      const x = c * cellSize, y = r * cellSize;
+      // Shadow
+      bgCtx.fillStyle = 'rgba(0,0,0,0.2)';
+      bgCtx.fillRect(x + 2, y + 2, cellSize, cellSize);
+      // Body
+      bgCtx.fillStyle = '#5a3015';
+      bgCtx.fillRect(x, y, cellSize, cellSize);
+      // Grain
+      for (let g = 0; g < cellSize; g += 3) {
+        const gn = Math.sin((y + g) * 0.2) * 0.04 + Math.sin((y + g) * 0.07) * 0.02;
+        bgCtx.fillStyle = 'rgba(0,0,0,' + Math.abs(gn) + ')';
+        bgCtx.fillRect(x, y + g, cellSize, 2);
+      }
+      // 3D edges
+      bgCtx.fillStyle = 'rgba(180,130,80,0.25)';
+      bgCtx.fillRect(x, y, cellSize, 2);
+      bgCtx.fillRect(x, y, 2, cellSize);
+      bgCtx.fillStyle = 'rgba(0,0,0,0.25)';
+      bgCtx.fillRect(x + 2, y + cellSize - 2, cellSize - 2, 2);
+      bgCtx.fillRect(x + cellSize - 2, y + 2, 2, cellSize - 2);
+    }
+  }
+
+  // --- Holes ---
+  holes.forEach(function(h) {
+    var hr = cellSize * 0.34;
+    // Outer shadow
+    var g1 = bgCtx.createRadialGradient(h.x, h.y, hr * 0.7, h.x, h.y, hr * 1.3);
+    g1.addColorStop(0, 'rgba(0,0,0,0.3)');
+    g1.addColorStop(1, 'rgba(0,0,0,0)');
+    bgCtx.beginPath(); bgCtx.arc(h.x, h.y, hr * 1.3, 0, Math.PI * 2);
+    bgCtx.fillStyle = g1; bgCtx.fill();
+    // Depth
+    var g2 = bgCtx.createRadialGradient(h.x, h.y, 0, h.x, h.y, hr);
+    g2.addColorStop(0, '#050202'); g2.addColorStop(0.6, '#0a0504');
+    g2.addColorStop(0.85, '#1a0e08'); g2.addColorStop(1, '#3a2010');
+    bgCtx.beginPath(); bgCtx.arc(h.x, h.y, hr, 0, Math.PI * 2);
+    bgCtx.fillStyle = g2; bgCtx.fill();
+    bgCtx.strokeStyle = 'rgba(30,15,5,0.5)'; bgCtx.lineWidth = 1.5; bgCtx.stroke();
+  });
+
+  // --- Goal ---
+  var gr = cellSize * 0.36;
+  var gg1 = bgCtx.createRadialGradient(endPos.x, endPos.y, gr * 0.3, endPos.x, endPos.y, gr * 1.4);
+  gg1.addColorStop(0, 'rgba(255,220,80,0.2)'); gg1.addColorStop(1, 'rgba(255,220,80,0)');
+  bgCtx.beginPath(); bgCtx.arc(endPos.x, endPos.y, gr * 1.4, 0, Math.PI * 2);
+  bgCtx.fillStyle = gg1; bgCtx.fill();
+  var gg2 = bgCtx.createRadialGradient(endPos.x - gr * 0.3, endPos.y - gr * 0.3, gr * 0.1,
+    endPos.x + gr * 0.1, endPos.y + gr * 0.1, gr);
+  gg2.addColorStop(0, '#ffe880'); gg2.addColorStop(0.5, '#d4a020'); gg2.addColorStop(1, '#906c10');
+  bgCtx.beginPath(); bgCtx.arc(endPos.x, endPos.y, gr, 0, Math.PI * 2);
+  bgCtx.fillStyle = gg2; bgCtx.fill();
+  bgCtx.strokeStyle = '#604808'; bgCtx.lineWidth = 1.5; bgCtx.stroke();
+  bgCtx.font = Math.floor(cellSize * 0.42) + 'px serif';
+  bgCtx.textAlign = 'center'; bgCtx.textBaseline = 'middle';
+  bgCtx.fillText('🏁', endPos.x, endPos.y);
+
+  // --- Outer frame ---
+  bgCtx.strokeStyle = '#1a0a04'; bgCtx.lineWidth = 3;
+  bgCtx.strokeRect(1, 1, bgCanvas.width - 2, bgCanvas.height - 2);
+}
+
+// ============================================================
+// BALL RENDERING
+// ============================================================
+function drawBall(x, y, r) {
+  if (r <= 0) return;
+  // Shadow
+  ctx.beginPath(); ctx.arc(x + 2, y + 3, r * 0.95, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fill();
+  // Metallic body
+  var g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.05,
+    x + r * 0.1, y + r * 0.1, r);
+  g.addColorStop(0, '#eeeeF4'); g.addColorStop(0.2, '#ccccDC');
+  g.addColorStop(0.5, '#8888A0'); g.addColorStop(0.8, '#505068');
+  g.addColorStop(1, '#2a2a38');
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fillStyle = g; ctx.fill();
+  // Highlight
+  ctx.beginPath(); ctx.arc(x - r * 0.22, y - r * 0.25, r * 0.17, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.fill();
+}
+
+// ============================================================
+// PHYSICS
+// ============================================================
+function updatePhysics() {
+  // Tilt acceleration
+  ball.vx += tiltX * ACCEL;
+  ball.vy += tiltY * ACCEL;
+
+  // Hole gravitational pull
+  for (var i = 0; i < holes.length; i++) {
+    var h = holes[i];
+    var dx = h.x - ball.x, dy = h.y - ball.y;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var pullR = cellSize * HOLE_PULL_RADIUS;
+    if (dist < pullR && dist > 1) {
+      var str = HOLE_PULL_STRENGTH * (1 - dist / pullR);
+      ball.vx += (dx / dist) * str;
+      ball.vy += (dy / dist) * str;
+    }
+  }
+
+  // Friction & speed cap
+  ball.vx *= FRICTION;
+  ball.vy *= FRICTION;
+  var spd = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+  if (spd > MAX_SPEED) { ball.vx *= MAX_SPEED / spd; ball.vy *= MAX_SPEED / spd; }
+  if (Math.abs(ball.vx) < 0.005) ball.vx = 0;
+  if (Math.abs(ball.vy) < 0.005) ball.vy = 0;
+
+  // Sub-step movement with wall collision
+  for (var s = 0; s < 4; s++) {
+    ball.x += ball.vx / 4;
+    resolveWalls('x');
+    ball.y += ball.vy / 4;
+    resolveWalls('y');
+  }
+
+  // Check holes
+  for (var i = 0; i < holes.length; i++) {
+    var h = holes[i];
+    var dx = ball.x - h.x, dy = ball.y - h.y;
+    if (Math.sqrt(dx * dx + dy * dy) < cellSize * HOLE_FALL_RADIUS) {
+      beginFall(h.x, h.y);
+      return;
+    }
+  }
+
+  // Check goal
+  var gx = ball.x - endPos.x, gy = ball.y - endPos.y;
+  if (Math.sqrt(gx * gx + gy * gy) < cellSize * 0.3) {
+    onLevelComplete();
+  }
+}
+
+function resolveWalls(axis) {
+  var r = ball.radius;
+  var rows = maze.length, cols = maze[0].length;
+  var c0 = Math.max(0, Math.floor((ball.x - r) / cellSize));
+  var c1 = Math.min(cols - 1, Math.floor((ball.x + r) / cellSize));
+  var r0 = Math.max(0, Math.floor((ball.y - r) / cellSize));
+  var r1 = Math.min(rows - 1, Math.floor((ball.y + r) / cellSize));
+
+  for (var row = r0; row <= r1; row++) {
+    for (var col = c0; col <= c1; col++) {
+      if (maze[row][col] !== WALL) continue;
+      var wx = col * cellSize, wy = row * cellSize;
+      // Closest point on rectangle to ball center
+      var cx = Math.max(wx, Math.min(ball.x, wx + cellSize));
+      var cy = Math.max(wy, Math.min(ball.y, wy + cellSize));
+      var dx = ball.x - cx, dy = ball.y - cy;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < r) {
+        if (dist > 0.001) {
+          var overlap = r - dist;
+          ball.x += (dx / dist) * overlap;
+          ball.y += (dy / dist) * overlap;
+          if (axis === 'x') ball.vx *= -BOUNCE_FACTOR;
+          else ball.vy *= -BOUNCE_FACTOR;
+        } else {
+          if (axis === 'x') {
+            ball.x = ball.vx >= 0 ? wx - r : wx + cellSize + r;
+            ball.vx *= -BOUNCE_FACTOR;
+          } else {
+            ball.y = ball.vy >= 0 ? wy - r : wy + cellSize + r;
+            ball.vy *= -BOUNCE_FACTOR;
+          }
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// FALL ANIMATION
+// ============================================================
+function beginFall(holeX, holeY) {
+  gameState = 'falling';
+  timerRunning = false;
+  fallAnim = {
+    startX: ball.x, startY: ball.y,
+    holeX: holeX, holeY: holeY,
+    startR: ball.radius,
+    startTime: performance.now(),
+    duration: 450
+  };
+}
+
+function tickFallAnimation(timestamp) {
+  if (!fallAnim) return;
+  var t = Math.min(1, (timestamp - fallAnim.startTime) / fallAnim.duration);
+  var ease = t * t;
+  var x = fallAnim.startX + (fallAnim.holeX - fallAnim.startX) * ease;
+  var y = fallAnim.startY + (fallAnim.holeY - fallAnim.startY) * ease;
+  var r = fallAnim.startR * (1 - ease * 0.95);
+  drawBall(x, y, r);
+  if (t >= 1) { fallAnim = null; onBallFell(); }
+}
+
+// ============================================================
+// GAME EVENTS
+// ============================================================
+function onBallFell() {
+  lives--;
+  updateHUD();
+  if (lives <= 0) {
+    gameState = 'gameover';
+    showOverlay('overlayGameOver');
+  } else {
+    gameState = 'fell';
+    document.getElementById('fellMsg').textContent =
+      'Lives remaining: ' + '❤️'.repeat(lives);
+    showOverlay('overlayFell');
+  }
+}
+
+function onLevelComplete() {
+  gameState = 'win';
+  timerRunning = false;
+  var elapsed = (performance.now() - timerStart) / 1000;
+  totalTime += elapsed;
+  document.getElementById('winTime').textContent = elapsed.toFixed(1) + 's';
+
+  if (currentLevel >= LEVELS.length - 1) {
+    document.getElementById('totalTimeVal').textContent = totalTime.toFixed(1) + 's';
+    gameState = 'alldone';
+    showOverlay('overlayAllDone');
+  } else {
+    document.getElementById('winMsg').textContent =
+      'Get ready for Level ' + (currentLevel + 2) + '!';
+    showOverlay('overlayWin');
+  }
+}
+
+// ============================================================
+// HUD & OVERLAYS
+// ============================================================
+function updateHUD() {
+  var hearts = '';
+  for (var i = 0; i < 3; i++) hearts += i < lives ? '❤️' : '🖤';
+  document.getElementById('hudLives').textContent = hearts;
+  document.getElementById('hudLevel').textContent = String(currentLevel + 1);
+  if (timerRunning) {
+    var t = (performance.now() - timerStart) / 1000;
+    document.getElementById('hudTime').textContent = t.toFixed(1) + 's';
+  }
+}
+
+function showOverlay(id) { document.getElementById(id).classList.remove('hidden'); }
+function hideAllOverlays() {
+  document.querySelectorAll('.overlay').forEach(function(el) { el.classList.add('hidden'); });
+}
+
+// ============================================================
+// DEVICE ORIENTATION
+// ============================================================
+function requestMotionPermission(callback) {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    DeviceOrientationEvent.requestPermission()
+      .then(function(state) {
+        if (state === 'granted') { startListening(); callback(); }
+      }).catch(console.error);
+  } else {
+    startListening();
+    callback();
+  }
+}
+
+function startListening() {
+  if (orientationListening) return;
+  orientationListening = true;
+  window.addEventListener('deviceorientation', onDeviceOrientation, true);
+}
+
+function onDeviceOrientation(e) {
+  var beta = e.beta || 0;   // front-back tilt
+  var gamma = e.gamma || 0; // left-right tilt
+
+  if (!calibrated) {
+    betaOffset = beta;
+    gammaOffset = gamma;
+    calibrated = true;
+  }
+
+  var adjBeta = beta - betaOffset;
+  var adjGamma = gamma - gammaOffset;
+  var maxAngle = 25;
+  adjBeta = Math.max(-maxAngle, Math.min(maxAngle, adjBeta));
+  adjGamma = Math.max(-maxAngle, Math.min(maxAngle, adjGamma));
+  tiltX = adjGamma / maxAngle;
+  tiltY = adjBeta / maxAngle;
+}
+
+// ============================================================
+// GAME LOOP
+// ============================================================
+function gameLoop(timestamp) {
+  if (gameState === 'playing') {
+    updatePhysics();
+    updateHUD();
+  }
+
+  // --- Render ---
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (bgCanvas) ctx.drawImage(bgCanvas, 0, 0);
+
+  // Goal pulse glow
+  if (gameState === 'playing' || gameState === 'start') {
+    var pulse = Math.sin(timestamp * 0.004) * 0.5 + 0.5;
+    var glowR = cellSize * 0.45 + pulse * cellSize * 0.12;
+    var glowG = ctx.createRadialGradient(endPos.x, endPos.y, 0, endPos.x, endPos.y, glowR);
+    glowG.addColorStop(0, 'rgba(255,220,80,' + (0.1 + pulse * 0.08) + ')');
+    glowG.addColorStop(1, 'rgba(255,220,80,0)');
+    ctx.beginPath(); ctx.arc(endPos.x, endPos.y, glowR, 0, Math.PI * 2);
+    ctx.fillStyle = glowG; ctx.fill();
+  }
+
+  // Draw ball or fall animation
+  if (gameState === 'falling') {
+    tickFallAnimation(timestamp);
+  } else if (gameState === 'playing' || gameState === 'start' ||
+             gameState === 'fell' || gameState === 'win') {
+    drawBall(ball.x, ball.y, ball.radius);
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+// ============================================================
+// START / RESTART HELPERS
+// ============================================================
+function startPlaying() {
+  hideAllOverlays();
+  gameState = 'playing';
+  timerStart = performance.now();
+  timerRunning = true;
+  calibrated = false; // recalibrate on next orientation event
+}
+
+// ============================================================
+// BUTTON HANDLERS
+// ============================================================
+document.getElementById('btnStart').addEventListener('click', function() {
+  requestMotionPermission(function() {
+    initLevel();
+    startPlaying();
+  });
+});
+
+document.getElementById('btnRetry').addEventListener('click', function() {
+  resetBall();
+  startPlaying();
+});
+
+document.getElementById('btnNext').addEventListener('click', function() {
+  currentLevel++;
+  initLevel();
+  startPlaying();
+});
+
+document.getElementById('btnRestart').addEventListener('click', function() {
+  currentLevel = 0; lives = 3; totalTime = 0;
+  initLevel();
+  startPlaying();
+});
+
+document.getElementById('btnPlayAgain').addEventListener('click', function() {
+  currentLevel = 0; lives = 3; totalTime = 0;
+  initLevel();
+  startPlaying();
+});
+
+// ============================================================
+// LAUNCH
+// ============================================================
+initLevel();
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
