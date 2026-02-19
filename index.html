@@ -62,7 +62,7 @@ canvas {
 <div id="hud">
   <div class="hud-item"><div class="hud-label">Lives</div><div class="hud-value" id="hudLives">❤️❤️❤️</div></div>
   <div class="hud-item"><div class="hud-label">Time</div><div class="hud-value" id="hudTime">0.0s</div></div>
-  <div class="hud-item"><div class="hud-label">Keys</div><div class="hud-value" id="hudKeys">🔑 0/3</div></div>
+  <div class="hud-item"><div class="hud-label">Gems</div><div class="hud-value" id="hudKeys">💎 0/3</div></div>
   <div class="hud-item"><div class="hud-label">Level</div><div class="hud-value" id="hudLevel">1</div></div>
 </div>
 <canvas id="gameCanvas"></canvas>
@@ -70,14 +70,14 @@ canvas {
 <div class="overlay" id="overlayStart">
   <h1>⚙️ Labyrinth</h1>
   <p>Tilt your phone to roll the steel ball<br>through the maze to the goal.</p>
-  <p>Collect all 3 🔑 keys to unlock the exit!<br>Avoid the holes! You have 3 lives.</p>
+  <p>Collect all 3 💎 gems to unlock the exit!<br>Avoid the holes! You have 3 lives.</p>
   <p class="sub">Hold your phone however feels comfortable —<br>that angle becomes your neutral position.</p>
   <button class="btn" id="btnStart">Tap to Start</button>
 </div>
 <div class="overlay hidden" id="overlayFell">
   <h2>😵 Fell in a hole!</h2>
   <p id="fellMsg">Lives remaining: ❤️❤️</p>
-  <p class="sub">Keys have been scattered again!</p>
+  <p class="sub">Gems have been scattered again!</p>
   <button class="btn" id="btnRetry">Try Again</button>
 </div>
 <div class="overlay hidden" id="overlayWin">
@@ -149,7 +149,12 @@ var LEVELS = [
    [1,1,1,1,1,1,1,1,1,1]]
 ];
 
-// Tuning
+var GEM_COLORS = [
+  { body: '#ff2060', light: '#ff80a0', dark: '#a01040', glow: 'rgba(255,32,96,', name: 'Ruby' },
+  { body: '#20e070', light: '#80ffc0', dark: '#108040', glow: 'rgba(32,224,112,', name: 'Emerald' },
+  { body: '#40a0ff', light: '#a0d8ff', dark: '#1050a0', glow: 'rgba(64,160,255,', name: 'Sapphire' }
+];
+
 var FRICTION = 0.965;
 var ACCEL = 0.7;
 var SENSITIVITY_X = 1.0;
@@ -159,9 +164,8 @@ var BOUNCE_FACTOR = 0.25;
 var HOLE_PULL_RADIUS = 0.85;
 var HOLE_PULL_STRENGTH = 0.1;
 var HOLE_FALL_RADIUS = 0.26;
-var KEY_COLLECT_RADIUS = 0.45;
+var GEM_COLLECT_RADIUS = 0.45;
 
-// State
 var currentLevel = 0;
 var lives = 3;
 var gameState = 'start';
@@ -176,10 +180,10 @@ var holes = [];
 var startPos = { x: 0, y: 0 };
 var endPos = { x: 0, y: 0 };
 
-var gameKeys = [];
-var collectedKeys = 0;
+var gems = [];
+var collectedGems = 0;
 var exitUnlocked = false;
-var keyCollectAnims = [];
+var gemCollectAnims = [];
 var onExitZone = false;
 
 var messageTimer = 0;
@@ -195,7 +199,6 @@ var fallAnim = null;
 var bgCanvas = null, bgCtx = null;
 var lastTimestamp = 0;
 
-// ============================================================
 function setupCanvas() {
   maze = LEVELS[currentLevel];
   var rows = maze.length;
@@ -210,11 +213,11 @@ function setupCanvas() {
   ball.radius = Math.floor(cellSize * 0.32);
 }
 
-function spawnKeys() {
-  gameKeys = [];
-  collectedKeys = 0;
+function spawnGems() {
+  gems = [];
+  collectedGems = 0;
   exitUnlocked = false;
-  keyCollectAnims = [];
+  gemCollectAnims = [];
   onExitZone = false;
 
   var openCells = [];
@@ -262,7 +265,7 @@ function spawnKeys() {
     }
   }
   for (var k = 0; k < chosen.length; k++) {
-    gameKeys.push({ x: chosen[k].x, y: chosen[k].y, collected: false });
+    gems.push({ x: chosen[k].x, y: chosen[k].y, collected: false, color: GEM_COLORS[k] });
   }
 }
 
@@ -279,7 +282,7 @@ function initLevel() {
       else if (val === HOLE) holes.push({ x: px, y: py });
     }
   }
-  spawnKeys();
+  spawnGems();
   resetBall();
   renderBackground();
   updateHUD();
@@ -296,9 +299,6 @@ function resetBall() {
   onExitZone = false;
 }
 
-// ============================================================
-// BACKGROUND (static: floor, walls, holes)
-// ============================================================
 function renderBackground() {
   bgCanvas = document.createElement('canvas');
   bgCanvas.width = canvas.width;
@@ -358,7 +358,107 @@ function renderBackground() {
 }
 
 // ============================================================
-// DYNAMIC DRAWING: exit, keys, message
+// DRAW GEM (diamond shape, programmatic)
+// ============================================================
+function drawGem(x, y, size, color, timestamp, index) {
+  var bob = Math.sin(timestamp * 0.004 + index * 2.1) * size * 0.15;
+  var cy = y + bob;
+  var rot = Math.sin(timestamp * 0.002 + index * 1.7) * 0.15;
+  var pulse = Math.sin(timestamp * 0.006 + index * 1.3) * 0.5 + 0.5;
+
+  // outer glow
+  var glowR = size * 1.8 + pulse * size * 0.5;
+  var glow = ctx.createRadialGradient(x, cy, 0, x, cy, glowR);
+  glow.addColorStop(0, color.glow + '0.4)');
+  glow.addColorStop(0.4, color.glow + '0.15)');
+  glow.addColorStop(1, color.glow + '0)');
+  ctx.beginPath(); ctx.arc(x, cy, glowR, 0, Math.PI * 2);
+  ctx.fillStyle = glow; ctx.fill();
+
+  ctx.save();
+  ctx.translate(x, cy);
+  ctx.rotate(rot);
+
+  var w = size * 0.55;
+  var h = size * 0.8;
+  var topH = h * 0.35;
+  var botH = h * 0.65;
+
+  // shadow
+  ctx.save();
+  ctx.translate(1.5, 2.5);
+  ctx.beginPath();
+  ctx.moveTo(0, -topH);
+  ctx.lineTo(w, 0);
+  ctx.lineTo(0, botH);
+  ctx.lineTo(-w, 0);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fill();
+  ctx.restore();
+
+  // main body
+  ctx.beginPath();
+  ctx.moveTo(0, -topH);
+  ctx.lineTo(w, 0);
+  ctx.lineTo(0, botH);
+  ctx.lineTo(-w, 0);
+  ctx.closePath();
+  ctx.fillStyle = color.body;
+  ctx.fill();
+  ctx.strokeStyle = color.dark;
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+
+  // left facet (darker)
+  ctx.beginPath();
+  ctx.moveTo(0, -topH);
+  ctx.lineTo(-w, 0);
+  ctx.lineTo(0, botH);
+  ctx.lineTo(0, 0);
+  ctx.closePath();
+  ctx.fillStyle = color.dark;
+  ctx.globalAlpha = 0.35;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // top highlight facet
+  ctx.beginPath();
+  ctx.moveTo(0, -topH);
+  ctx.lineTo(w * 0.5, -topH * 0.2);
+  ctx.lineTo(0, 0);
+  ctx.lineTo(-w * 0.3, -topH * 0.3);
+  ctx.closePath();
+  ctx.fillStyle = color.light;
+  ctx.globalAlpha = 0.5;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+
+  // bright sparkle
+  var sparkle = (Math.sin(timestamp * 0.008 + index * 3) * 0.5 + 0.5);
+  ctx.beginPath();
+  ctx.arc(-w * 0.15, -topH * 0.45, size * 0.08 + sparkle * size * 0.06, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,' + (0.6 + sparkle * 0.4) + ')';
+  ctx.fill();
+
+  // inner refraction lines
+  ctx.beginPath();
+  ctx.moveTo(0, -topH);
+  ctx.lineTo(0, botH);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.moveTo(-w, 0);
+  ctx.lineTo(w, 0);
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 // ============================================================
 function drawExit(timestamp) {
   var gr = cellSize * 0.36;
@@ -405,35 +505,42 @@ function drawExit(timestamp) {
   }
 }
 
-function drawKeys(timestamp) {
-  for (var i = 0; i < gameKeys.length; i++) {
-    if (gameKeys[i].collected) continue;
-    var k = gameKeys[i];
-    var bob = Math.sin(timestamp * 0.004 + i * 2.1) * cellSize * 0.06;
-
-    var glowR = cellSize * 0.42;
-    var glow = ctx.createRadialGradient(k.x, k.y + bob, 0, k.x, k.y + bob, glowR);
-    glow.addColorStop(0, 'rgba(255,220,60,0.3)');
-    glow.addColorStop(1, 'rgba(255,220,60,0)');
-    ctx.beginPath(); ctx.arc(k.x, k.y + bob, glowR, 0, Math.PI * 2);
-    ctx.fillStyle = glow; ctx.fill();
-
-    ctx.font = Math.floor(cellSize * 0.5) + 'px serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('🔑', k.x, k.y + bob);
+function drawGems(timestamp) {
+  for (var i = 0; i < gems.length; i++) {
+    if (gems[i].collected) continue;
+    drawGem(gems[i].x, gems[i].y, cellSize * 0.42, gems[i].color, timestamp, i);
   }
 
-  for (var i = keyCollectAnims.length - 1; i >= 0; i--) {
-    var anim = keyCollectAnims[i];
+  for (var i = gemCollectAnims.length - 1; i >= 0; i--) {
+    var anim = gemCollectAnims[i];
     var t = (timestamp - anim.startTime) / anim.duration;
-    if (t >= 1) { keyCollectAnims.splice(i, 1); continue; }
-    var scale = 1 + t * 1.5;
+    if (t >= 1) { gemCollectAnims.splice(i, 1); continue; }
+    var scale = 1 + t * 2;
     var alpha = 1 - t;
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.font = Math.floor(cellSize * 0.5 * scale) + 'px serif';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('🔑', anim.x, anim.y - t * cellSize * 0.7);
+
+    // expanding ring
+    var ringR = cellSize * 0.3 * scale;
+    ctx.beginPath();
+    ctx.arc(anim.x, anim.y - t * cellSize * 0.5, ringR, 0, Math.PI * 2);
+    ctx.strokeStyle = anim.color.glow + alpha + ')';
+    ctx.lineWidth = 3 * (1 - t);
+    ctx.stroke();
+
+    // particles
+    for (var p = 0; p < 6; p++) {
+      var angle = (Math.PI * 2 / 6) * p + anim.startTime * 0.01;
+      var dist = cellSize * 0.2 * scale;
+      var px = anim.x + Math.cos(angle) * dist;
+      var py = anim.y - t * cellSize * 0.5 + Math.sin(angle) * dist;
+      var pSize = cellSize * 0.04 * (1 - t);
+      ctx.beginPath();
+      ctx.arc(px, py, pSize, 0, Math.PI * 2);
+      ctx.fillStyle = anim.color.light;
+      ctx.fill();
+    }
+
     ctx.restore();
   }
 }
@@ -480,9 +587,6 @@ function roundRect(c, x, y, w, h, r) {
   c.arcTo(x, y, x + r, y, r);
 }
 
-// ============================================================
-// BALL RENDERING
-// ============================================================
 function drawBall(x, y, r) {
   if (r <= 0) return;
   ctx.beginPath(); ctx.arc(x + 2, y + 3, r * 0.95, 0, Math.PI * 2);
@@ -498,9 +602,6 @@ function drawBall(x, y, r) {
   ctx.fillStyle = 'rgba(255,255,255,0.65)'; ctx.fill();
 }
 
-// ============================================================
-// PHYSICS
-// ============================================================
 function updatePhysics(timestamp) {
   ball.vx += tiltX * ACCEL * SENSITIVITY_X;
   ball.vy += tiltY * ACCEL * SENSITIVITY_Y;
@@ -531,18 +632,18 @@ function updatePhysics(timestamp) {
     resolveWalls('y');
   }
 
-  // Key collection
-  for (var i = 0; i < gameKeys.length; i++) {
-    if (gameKeys[i].collected) continue;
-    var kx = ball.x - gameKeys[i].x, ky = ball.y - gameKeys[i].y;
-    if (Math.sqrt(kx * kx + ky * ky) < cellSize * KEY_COLLECT_RADIUS) {
-      gameKeys[i].collected = true;
-      collectedKeys++;
-      keyCollectAnims.push({
-        x: gameKeys[i].x, y: gameKeys[i].y,
-        startTime: timestamp, duration: 500
+  for (var i = 0; i < gems.length; i++) {
+    if (gems[i].collected) continue;
+    var kx = ball.x - gems[i].x, ky = ball.y - gems[i].y;
+    if (Math.sqrt(kx * kx + ky * ky) < cellSize * GEM_COLLECT_RADIUS) {
+      gems[i].collected = true;
+      collectedGems++;
+      gemCollectAnims.push({
+        x: gems[i].x, y: gems[i].y,
+        color: gems[i].color,
+        startTime: timestamp, duration: 600
       });
-      if (collectedKeys >= 3) {
+      if (collectedGems >= 3) {
         exitUnlocked = true;
         onExitZone = false;
       }
@@ -550,7 +651,6 @@ function updatePhysics(timestamp) {
     }
   }
 
-  // Holes
   for (var i = 0; i < holes.length; i++) {
     var h = holes[i];
     var dx = ball.x - h.x, dy = ball.y - h.y;
@@ -560,7 +660,6 @@ function updatePhysics(timestamp) {
     }
   }
 
-  // Exit check
   var gx = ball.x - endPos.x, gy = ball.y - endPos.y;
   var distToExit = Math.sqrt(gx * gx + gy * gy);
   var exitRadius = cellSize * 0.35;
@@ -571,7 +670,7 @@ function updatePhysics(timestamp) {
       if (exitUnlocked) {
         onLevelComplete();
       } else {
-        messageText = '🔑 Collect all keys first!';
+        messageText = '💎 Collect all gems first!';
         messageTimer = 1500;
         shakeTimer = 300;
       }
@@ -619,9 +718,6 @@ function resolveWalls(axis) {
   }
 }
 
-// ============================================================
-// FALL ANIMATION
-// ============================================================
 function beginFall(holeX, holeY) {
   gameState = 'falling';
   timerRunning = false;
@@ -645,9 +741,6 @@ function tickFallAnimation(timestamp) {
   if (t >= 1) { fallAnim = null; onBallFell(); }
 }
 
-// ============================================================
-// GAME EVENTS
-// ============================================================
 function onBallFell() {
   lives--;
   updateHUD();
@@ -680,15 +773,19 @@ function onLevelComplete() {
   }
 }
 
-// ============================================================
-// HUD & OVERLAYS
-// ============================================================
 function updateHUD() {
   var hearts = '';
   for (var i = 0; i < 3; i++) hearts += i < lives ? '❤️' : '🖤';
   document.getElementById('hudLives').textContent = hearts;
   document.getElementById('hudLevel').textContent = String(currentLevel + 1);
-  document.getElementById('hudKeys').textContent = '🔑 ' + collectedKeys + '/3';
+
+  var gemIcons = '';
+  for (var i = 0; i < 3; i++) {
+    if (i < collectedGems) gemIcons += '💎';
+    else gemIcons += '◇';
+  }
+  document.getElementById('hudKeys').textContent = gemIcons;
+
   if (timerRunning) {
     var t = (performance.now() - timerStart) / 1000;
     document.getElementById('hudTime').textContent = t.toFixed(1) + 's';
@@ -700,9 +797,6 @@ function hideAllOverlays() {
   document.querySelectorAll('.overlay').forEach(function(el) { el.classList.add('hidden'); });
 }
 
-// ============================================================
-// DEVICE ORIENTATION
-// ============================================================
 function requestMotionPermission(callback) {
   if (typeof DeviceOrientationEvent !== 'undefined' &&
       typeof DeviceOrientationEvent.requestPermission === 'function') {
@@ -739,9 +833,6 @@ function onDeviceOrientation(e) {
   tiltY = adjBeta / maxAngle;
 }
 
-// ============================================================
-// GAME LOOP
-// ============================================================
 function gameLoop(timestamp) {
   var dt = timestamp - lastTimestamp;
   lastTimestamp = timestamp;
@@ -768,7 +859,7 @@ function gameLoop(timestamp) {
   if (bgCanvas) ctx.drawImage(bgCanvas, 0, 0);
 
   drawExit(timestamp);
-  drawKeys(timestamp);
+  drawGems(timestamp);
 
   if (gameState === 'falling') {
     tickFallAnimation(timestamp);
@@ -784,9 +875,6 @@ function gameLoop(timestamp) {
   requestAnimationFrame(gameLoop);
 }
 
-// ============================================================
-// START / RESTART
-// ============================================================
 function startPlaying() {
   hideAllOverlays();
   gameState = 'playing';
@@ -795,9 +883,6 @@ function startPlaying() {
   calibrated = false;
 }
 
-// ============================================================
-// BUTTON HANDLERS
-// ============================================================
 document.getElementById('btnStart').addEventListener('click', function() {
   requestMotionPermission(function() {
     initLevel();
@@ -806,7 +891,7 @@ document.getElementById('btnStart').addEventListener('click', function() {
 });
 
 document.getElementById('btnRetry').addEventListener('click', function() {
-  spawnKeys();
+  spawnGems();
   resetBall();
   startPlaying();
 });
@@ -829,9 +914,6 @@ document.getElementById('btnPlayAgain').addEventListener('click', function() {
   startPlaying();
 });
 
-// ============================================================
-// LAUNCH
-// ============================================================
 initLevel();
 lastTimestamp = performance.now();
 requestAnimationFrame(gameLoop);
