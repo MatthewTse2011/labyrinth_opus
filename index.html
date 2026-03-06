@@ -29,6 +29,41 @@ canvas {
   display: block; border-radius: 4px;
   box-shadow: 0 4px 20px rgba(0,0,0,0.5);
 }
+#sliderBar {
+  width: 100%; max-width: 420px;
+  padding: 10px 14px 12px;
+  display: flex; align-items: center; gap: 10px;
+}
+#sliderBar .slider-label {
+  color: #dcc49c; font-size: 11px; white-space: nowrap;
+  text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;
+}
+#sliderBar .slider-value {
+  color: #f0c040; font-size: 13px; font-weight: bold;
+  min-width: 36px; text-align: center;
+}
+#sensitivitySlider {
+  flex: 1; -webkit-appearance: none; appearance: none;
+  height: 8px; border-radius: 4px;
+  background: linear-gradient(90deg, #3a2010, #7a4420, #c8a060);
+  outline: none; cursor: pointer;
+  touch-action: pan-x;
+}
+#sensitivitySlider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 28px; height: 28px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #ffe880, #d4a020 50%, #906c10);
+  border: 2px solid #c8a060;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 0 12px rgba(240,192,64,0.3);
+  cursor: pointer;
+}
+#sensitivitySlider::-moz-range-thumb {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, #ffe880, #d4a020 50%, #906c10);
+  border: 2px solid #c8a060;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4), 0 0 12px rgba(240,192,64,0.3);
+  cursor: pointer;
+}
 .overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(10,5,2,0.84);
@@ -66,6 +101,12 @@ canvas {
   <div class="hud-item"><div class="hud-label">Level</div><div class="hud-value" id="hudLevel">1</div></div>
 </div>
 <canvas id="gameCanvas"></canvas>
+
+<div id="sliderBar">
+  <span class="slider-label">Sensitivity</span>
+  <input type="range" id="sensitivitySlider" min="10" max="200" value="100" step="5">
+  <span class="slider-value" id="sensitivityValue">1.0×</span>
+</div>
 
 <div class="overlay" id="overlayStart">
   <h1>⚙️ Labyrinth</h1>
@@ -157,8 +198,9 @@ var GEM_COLORS = [
 
 var FRICTION = 0.965;
 var ACCEL = 0.7;
-var SENSITIVITY_X = 1.0;
-var SENSITIVITY_Y = 1.4;
+var BASE_SENSITIVITY_X = 1.0;
+var BASE_SENSITIVITY_Y = 1.4;
+var sensitivityMultiplier = 1.0;
 var MAX_SPEED = 7;
 var BOUNCE_FACTOR = 0.25;
 var HOLE_PULL_RADIUS = 0.85;
@@ -199,12 +241,23 @@ var fallAnim = null;
 var bgCanvas = null, bgCtx = null;
 var lastTimestamp = 0;
 
+// Sensitivity slider
+var slider = document.getElementById('sensitivitySlider');
+var sliderValueEl = document.getElementById('sensitivityValue');
+slider.addEventListener('input', function() {
+  sensitivityMultiplier = parseInt(this.value) / 100;
+  sliderValueEl.textContent = sensitivityMultiplier.toFixed(1) + '×';
+});
+// Prevent slider from triggering tilt recalibration or other touch issues
+slider.addEventListener('touchstart', function(e) { e.stopPropagation(); }, { passive: true });
+slider.addEventListener('touchmove', function(e) { e.stopPropagation(); }, { passive: true });
+
 function setupCanvas() {
   maze = LEVELS[currentLevel];
   var rows = maze.length;
   var cols = maze[0].length;
   var maxW = Math.min(window.innerWidth - 8, 420);
-  var maxH = window.innerHeight - 80;
+  var maxH = window.innerHeight - 130;
   cellSize = Math.floor(Math.min(maxW / cols, maxH / rows));
   canvas.width = cellSize * cols;
   canvas.height = cellSize * rows;
@@ -357,16 +410,12 @@ function renderBackground() {
   bgCtx.strokeRect(1, 1, bgCanvas.width - 2, bgCanvas.height - 2);
 }
 
-// ============================================================
-// DRAW GEM (diamond shape, programmatic)
-// ============================================================
 function drawGem(x, y, size, color, timestamp, index) {
   var bob = Math.sin(timestamp * 0.004 + index * 2.1) * size * 0.15;
   var cy = y + bob;
   var rot = Math.sin(timestamp * 0.002 + index * 1.7) * 0.15;
   var pulse = Math.sin(timestamp * 0.006 + index * 1.3) * 0.5 + 0.5;
 
-  // outer glow
   var glowR = size * 1.8 + pulse * size * 0.5;
   var glow = ctx.createRadialGradient(x, cy, 0, x, cy, glowR);
   glow.addColorStop(0, color.glow + '0.4)');
@@ -384,7 +433,6 @@ function drawGem(x, y, size, color, timestamp, index) {
   var topH = h * 0.35;
   var botH = h * 0.65;
 
-  // shadow
   ctx.save();
   ctx.translate(1.5, 2.5);
   ctx.beginPath();
@@ -397,7 +445,6 @@ function drawGem(x, y, size, color, timestamp, index) {
   ctx.fill();
   ctx.restore();
 
-  // main body
   ctx.beginPath();
   ctx.moveTo(0, -topH);
   ctx.lineTo(w, 0);
@@ -410,7 +457,6 @@ function drawGem(x, y, size, color, timestamp, index) {
   ctx.lineWidth = 1.2;
   ctx.stroke();
 
-  // left facet (darker)
   ctx.beginPath();
   ctx.moveTo(0, -topH);
   ctx.lineTo(-w, 0);
@@ -422,7 +468,6 @@ function drawGem(x, y, size, color, timestamp, index) {
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // top highlight facet
   ctx.beginPath();
   ctx.moveTo(0, -topH);
   ctx.lineTo(w * 0.5, -topH * 0.2);
@@ -434,14 +479,12 @@ function drawGem(x, y, size, color, timestamp, index) {
   ctx.fill();
   ctx.globalAlpha = 1;
 
-  // bright sparkle
   var sparkle = (Math.sin(timestamp * 0.008 + index * 3) * 0.5 + 0.5);
   ctx.beginPath();
   ctx.arc(-w * 0.15, -topH * 0.45, size * 0.08 + sparkle * size * 0.06, 0, Math.PI * 2);
   ctx.fillStyle = 'rgba(255,255,255,' + (0.6 + sparkle * 0.4) + ')';
   ctx.fill();
 
-  // inner refraction lines
   ctx.beginPath();
   ctx.moveTo(0, -topH);
   ctx.lineTo(0, botH);
@@ -459,7 +502,6 @@ function drawGem(x, y, size, color, timestamp, index) {
   ctx.restore();
 }
 
-// ============================================================
 function drawExit(timestamp) {
   var gr = cellSize * 0.36;
 
@@ -520,7 +562,6 @@ function drawGems(timestamp) {
     ctx.save();
     ctx.globalAlpha = alpha;
 
-    // expanding ring
     var ringR = cellSize * 0.3 * scale;
     ctx.beginPath();
     ctx.arc(anim.x, anim.y - t * cellSize * 0.5, ringR, 0, Math.PI * 2);
@@ -528,7 +569,6 @@ function drawGems(timestamp) {
     ctx.lineWidth = 3 * (1 - t);
     ctx.stroke();
 
-    // particles
     for (var p = 0; p < 6; p++) {
       var angle = (Math.PI * 2 / 6) * p + anim.startTime * 0.01;
       var dist = cellSize * 0.2 * scale;
@@ -603,8 +643,11 @@ function drawBall(x, y, r) {
 }
 
 function updatePhysics(timestamp) {
-  ball.vx += tiltX * ACCEL * SENSITIVITY_X;
-  ball.vy += tiltY * ACCEL * SENSITIVITY_Y;
+  var effSensX = BASE_SENSITIVITY_X * sensitivityMultiplier;
+  var effSensY = BASE_SENSITIVITY_Y * sensitivityMultiplier;
+
+  ball.vx += tiltX * ACCEL * effSensX;
+  ball.vy += tiltY * ACCEL * effSensY;
 
   for (var i = 0; i < holes.length; i++) {
     var h = holes[i];
